@@ -1,0 +1,2 @@
+# generate_diff_dataframe
+pandasを使ってデータの差分を取ります
