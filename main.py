@@ -1,58 +1,62 @@
 import pandas as pd
+from pandas import DataFrame
+from typing import Union
 
-def generate_diff_dataframe(df_A, df_B, key_column):
+def generate_diff_dataframe(
+    df_A: DataFrame,
+    df_B: DataFrame,
+    key_column: Union[str, list[str]]
+) -> DataFrame:
+
     """
     差分データの生成
     Args:
-        df_A: データフレームA
-        df_B: データフレームB
-        key_column: 主キーとなるカラム名
+        df_A (DataFrame): 比較元のデータフレーム
+        df_B (DataFrame): 比較対象のデータフレーム
+        key_column (str | list[str]): 主キー列名または複数主キーのリスト
     Returns:
-        差分付きデータフレーム（B側のカラム構成 + query_action列）
+        DataFrame: Bの構成に query_action 列を加えた差分付きデータフレーム
     """
-    # 欠損値補完
-    df_A = df_A.fillna("")
-    df_B = df_B.fillna("")
+    df_A = df_A.fillna("").copy()
+    df_B = df_B.fillna("").copy()
 
     # outer join による統合とマージ情報の付与
-    merged_A = pd.merge(df_A, df_B, on=key_column, how="outer", suffixes=('', '_B'), indicator=True)
-    merged_B = pd.merge(df_A, df_B, on=key_column, how="outer", suffixes=('_A', ''), indicator=True)
+    merged = pd.merge(df_A, df_B, on=key_column, how="outer", suffixes=('_A', '_B'), indicator=True)
 
-    # 両方に存在するレコードを抽出
-    both_df = merged_B[merged_B['_merge'] == 'both'].copy()
+    # 結果格納用リスト
+    diff_rows = []
 
-    # A, B それぞれの "both" 対象行を key_column をインデックスにして抽出
-    df_A_both = df_A.set_index(key_column).loc[both_df[key_column]].sort_index()
-    df_B_both = df_B.set_index(key_column).loc[both_df[key_column]].sort_index()
+    # 各行の比較
+    for _, row in merged.iterrows():
+        key = row[key_column]
+        if row['_merge'] == 'left_only':
+            # Aにしかない → delete
+            delete_row = df_A[df_A[key_column] == key].iloc[0].copy()
+            delete_row['query_action'] = 'delete'
+            diff_rows.append(delete_row)
+        elif row['_merge'] == 'right_only':
+            # Bにしかない → insert
+            insert_row = df_B[df_B[key_column] == key].iloc[0].copy()
+            insert_row['query_action'] = 'insert'
+            diff_rows.append(insert_row)
+        else:
+            # 両方にある → 値を比較して update or skip
+            row_A = df_A[df_A[key_column] == key].iloc[0]
+            row_B = df_B[df_B[key_column] == key].iloc[0]
 
-    # 差分比較
-    differences = (df_A_both != df_B_both)
-    diff_exists = differences.any(axis=1)
+            if row_A.equals(row_B):
+                action = 'skip'
+            else:
+                action = 'update'
 
-    # query_action列の追加
-    df_B = df_B.copy()
-    df_B['query_action'] = ''
+            updated_row = row_B.copy()
+            updated_row['query_action'] = action
+            diff_rows.append(updated_row)
 
-    # 更新 or スキップの判定
-    both_df = df_B.set_index(key_column).loc[both_df[key_column]].copy()
-    both_df['query_action'] = 'skip'
-    both_df.loc[diff_exists, 'query_action'] = 'update'
-
-    # 削除対象
-    only_A = merged_A[merged_A['_merge'] == 'left_only'][[key_column]].copy()
-    only_A = pd.merge(only_A, df_A, on=key_column)
-    only_A['query_action'] = 'delete'
-
-    # 追加対象
-    only_B = merged_B[merged_B['_merge'] == 'right_only'][[key_column]].copy()
-    only_B = pd.merge(only_B, df_B.drop(columns='query_action'), on=key_column)
-    only_B['query_action'] = 'insert'
-
-    # カラム順に query_action を追加
-    result_columns = list(df_B.columns)
-    result_df = pd.concat([both_df, only_A[result_columns], only_B[result_columns]], ignore_index=True)
-
-    return result_df
+    # カラム順はBに合わせ、query_actionを最後に
+    result_df = pd.DataFrame(diff_rows)
+    columns_order = list(df_B.columns) + ['query_action']
+    return result_df[columns_order]
 
 def main():
     df_A = pd.DataFrame([
