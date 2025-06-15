@@ -53,7 +53,7 @@ def generate_diff_dataframe(
             diff_rows.append(updated_row)
 
     # カラム順はBに合わせ、query_actionを最後に
-    result_df = pd.DataFrame(diff_rows)
+    result_df = pd.DataFrame(diff_rows).fillna("").copy()
     columns_order = list(df_B.columns) + ['query_action']
     return result_df[columns_order]
 
