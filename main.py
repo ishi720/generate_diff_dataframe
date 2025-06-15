@@ -7,7 +7,6 @@ def generate_diff_dataframe(
     df_B: DataFrame,
     key_column: Union[str, list[str]]
 ) -> DataFrame:
-
     """
     差分データの生成
     Args:
